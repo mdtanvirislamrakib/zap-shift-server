@@ -61,7 +61,50 @@ async function run() {
       }
     });
 
-    // DELETE: Delete a parcel by ID
+    // GET: Get a specific parcel by ID
+    app.get("/parcels/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        // Check if the ID is a valid ObjectId
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ message: "Invalid parcel ID format" });
+        }
+
+        const query = { _id: new ObjectId(id) };
+        const parcel = await parcelCollection.findOne(query);
+
+        if (!parcel) {
+          return res.status(404).send({ message: "Parcel not found" });
+        }
+
+        res.send(parcel);
+      } catch (error) {
+        console.error("Error fetching parcel by ID", error);
+        res
+          .status(500)
+          .send({ message: "Failed to fetch parcel", error: error.message });
+      }
+    });
+
+    
+
+    app.post("/create-payment-intent", async (req, res) => {
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: 1000, // Amount in cents
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.json({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+
+
     // DELETE: Delete a parcel by ID
     app.delete("/parcels/:id", async (req, res) => {
       try {
@@ -76,12 +119,10 @@ async function run() {
         const result = await parcelCollection.deleteOne(filter);
 
         if (result.deletedCount === 1) {
-          return res
-            .status(200)
-            .send({
-              deletedCount: result.deletedCount,
-              message: "Parcel deleted successfully",
-            });
+          return res.status(200).send({
+            deletedCount: result.deletedCount,
+            message: "Parcel deleted successfully",
+          });
         } else {
           return res.status(404).send({ message: "Parcel not found" });
         }
