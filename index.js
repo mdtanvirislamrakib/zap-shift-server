@@ -4,6 +4,9 @@ const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 dotenv.config();
+const stripe = require("stripe")(
+  "sk_test_51ReKbrIros3mgqZXqiQnUZNSP42zggTX2epwpoXfsd3CfOP4pw4b5a9zI27ZXsruDC5N5PyfUpnVWzi0IWkjHfvs006SqqyrlH"
+);
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -26,6 +29,9 @@ async function run() {
     await client.connect();
 
     const parcelCollection = client.db("parcel_DB").collection("parcels");
+    const paymentHistoryCollection = client
+      .db("parcel_DB")
+      .collection("payments");
 
     // POST: Create a new parcel
     app.post("/parcels", async (req, res) => {
@@ -87,12 +93,11 @@ async function run() {
       }
     });
 
-    
-
     app.post("/create-payment-intent", async (req, res) => {
+      const amoutCents = req?.body?.amoutCents;
       try {
         const paymentIntent = await stripe.paymentIntents.create({
-          amount: 1000, // Amount in cents
+          amount: amoutCents, // Amount in cents
           currency: "usd",
           payment_method_types: ["card"],
         });
@@ -103,7 +108,155 @@ async function run() {
       }
     });
 
+    // PATCH: Mark parcel as paid & store payment history
+    // app.patch("/parcels/:id/pay", async (req, res) => {
+    //   try {
+    //     const parcelId = req.params.id;
+    //     const { amount, transactionId, paid_by } = req.body;
 
+    //     if (!ObjectId.isValid(parcelId)) {
+    //       return res.status(400).send({ message: "Invalid Parcel ID" });
+    //     }
+
+    //     // Update parcel payment status
+    //     const parcelFilter = { _id: new ObjectId(parcelId) };
+    //     const updateResult = await parcelCollection.updateOne(parcelFilter, {
+    //       $set: {
+    //         payment_status: "paid",
+    //         updatedAt: new Date(),
+    //       },
+    //     });
+
+    //     if (updateResult.modifiedCount === 0) {
+    //       return res
+    //         .status(404)
+    //         .send({ message: "Parcel not found or already paid" });
+    //     }
+
+    //     // Insert into payment history
+    //     const paymentHistory = {
+    //       parcelId,
+    //       amount,
+    //       transactionId,
+    //       paid_by,
+    //       createdAt: new Date(),
+    //     };
+
+    //     const historyResult = await paymentHistoryCollection.insertOne(
+    //       paymentHistory
+    //     );
+
+    //     res.status(200).send({
+    //       message: "Payment successful and recorded",
+    //       paymentHistoryId: historyResult.insertedId,
+    //     });
+    //   } catch (error) {
+    //     console.error("Payment update error", error);
+    //     res
+    //       .status(500)
+    //       .send({ message: "Failed to mark as paid", error: error.message });
+    //   }
+    // });
+
+    // // GET: Payment history by user email
+    // app.get("/payments/user", async (req, res) => {
+    //   try {
+    //     const email = req.query.email;
+
+    //     if (!email) {
+    //       return res.status(400).send({ message: "Email query is required" });
+    //     }
+
+    //     const history = await paymentHistoryCollection
+    //       .find({ paid_by: email })
+    //       .sort({ createdAt: -1 })
+    //       .toArray();
+
+    //     res.send(history);
+    //   } catch (error) {
+    //     console.error("Error getting user payment history", error);
+    //     res.status(500).send({ message: "Failed to get user payment history" });
+    //   }
+    // });
+
+    // // GET: All payment history (admin)
+    // app.get("/payments", async (req, res) => {
+    //   try {
+    //     const payments = await paymentHistoryCollection
+    //       .find()
+    //       .sort({ createdAt: -1 })
+    //       .toArray();
+
+    //     res.send(payments);
+    //   } catch (error) {
+    //     console.error("Error fetching all payments", error);
+    //     res.status(500).send({ message: "Failed to get all payment history" });
+    //   }
+    // });
+
+    app.get("/payments", async(req, res) => {
+      try {
+        const userEmail = req.query.email;
+
+        const query = userEmail ? {email: userEmail} : {};
+        const options = {sort: {paid_at: -1}}
+
+        const payments = await paymentHistoryCollection.find(query, options).toArray()
+        res.send(payments)
+
+
+
+
+      } catch (error) {
+        console.log("Error fatching payment history", error);
+        res.status(500).send({message: 'Failed to get payments'})
+      }
+    })
+
+
+
+    app.post("/payments", async (req, res) => {
+      try {
+        const { parcelId, email, amount, paymentMethod, transactionId } =
+          req.body;
+
+        // update parcel's payment status
+        const filter = { _id: new ObjectId(parcelId) };
+        const updateResult = await parcelCollection.updateOne(filter, {
+          $set: {
+            payment_status: "paid",
+          },
+        });
+
+        if (updateResult?.modifiedCount) {
+          return res
+            .status(404)
+            .send({ message: "parcel not found or already paid" });
+        }
+
+        // 2 insert Payment record
+        const paymentDoc = {
+          parcelId,
+          email,
+          amount,
+          paymentMethod,
+          transactionId,
+          paid_at: new Date().toISOString(),
+        };
+
+        const paymentResult = await paymentHistoryCollection.insertOne(
+          paymentDoc
+        );
+
+        res.status(201).send({
+          message: "Payment recoded and parcel marked is paid",
+          insertedId: paymentResult.insertedId,
+        });
+      } catch (error) {
+        console.error("Error fetching all payments", error);
+        res.status(500).send({ message: "Failed to post payment history" });
+      }
+    });
 
     // DELETE: Delete a parcel by ID
     app.delete("/parcels/:id", async (req, res) => {
