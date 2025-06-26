@@ -5,7 +5,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 dotenv.config();
 const stripe = require("stripe")(
-  "sk_test_51ReKbrIros3mgqZXqiQnUZNSP42zggTX2epwpoXfsd3CfOP4pw4b5a9zI27ZXsruDC5N5PyfUpnVWzi0IWkjHfvs006SqqyrlH"
+  process.env.SECRET_STRIPE
 );
 const app = express();
 app.use(cors());
@@ -32,6 +32,9 @@ async function run() {
     const paymentHistoryCollection = client
       .db("parcel_DB")
       .collection("payments");
+
+    const trackingCollection = client.db("parcel_DB").collection("tracking_updates");
+
 
     // POST: Create a new parcel
     app.post("/parcels", async (req, res) => {
@@ -127,6 +130,23 @@ async function run() {
         res.status(500).send({message: 'Failed to get payments'})
       }
     })
+
+
+    app.post("/tracking", async(req, res) => {
+      const {trackind_id, parcel_id, status, message, updated_by=""} = req.body;
+
+      const log = {
+        trackind_id,
+        parcel_id: parcel_id ? new ObjectId(parcel_id) : undefined,
+        status,
+        message,
+        time: new Date().toISOString(),
+        updated_by
+      };
+      const result = await trackingCollection.insertOne(log)
+      res.send({success: true, insertedId: result.insertedId})
+    })
+
 
 
 
