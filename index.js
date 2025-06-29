@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
+
 
 dotenv.config();
 const stripe = require("stripe")(
@@ -11,6 +13,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 const port = process.env.PORT || 3000;
+
+
+// add firebase service counter
+const serviceAccount = require("./firebase-admin-key.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+
+
+
 
 const uri = `mongodb+srv://${process.env.DB_USER_NAME}:${process.env.DB_USER_PASS}@cluster0.nvanxw5.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -34,6 +48,47 @@ async function run() {
       .collection("payments");
 
     const trackingCollection = client.db("parcel_DB").collection("tracking_updates");
+    const usersCollection = client.db("parcel_DB").collection("users")
+
+
+    // custom middleware verify firebase Token
+    const verifyFirebaseToken = async(req, res, next) => {
+      const authHeader = req?.headers?.authorization;
+
+      if(!authHeader) {
+        res.status(401).send({message: "Unauthorized access!!"})
+      }
+
+      const token = authHeader.split(" ")[1]
+
+      if(!token) {
+        res.status(401).send({message: "Unauthorized access!!"})
+      }
+
+      // verify the token
+
+
+      next()
+    }
+
+
+
+    // users data are store here
+    app.post("/users", async(req, res) => {
+      const email = req?.body?.email;
+      const userExists = await usersCollection.findOne({email})
+
+      if(userExists) {
+        return res.status(200).send({message: "User already exists", inserted: false})
+      }
+
+      const user = req.body;
+      const result = await usersCollection.insertOne(user)
+      res.send(result)
+
+
+    })
+
 
 
     // POST: Create a new parcel
@@ -54,6 +109,7 @@ async function run() {
 
     // get parcel by user emial
     app.get("/parcels", async (req, res) => {
+      console.log(req?.headers);
       try {
         const userEmail = req.query.email;
 
@@ -112,7 +168,7 @@ async function run() {
     });
 
 
-    app.get("/payments", async(req, res) => {
+    app.get("/payments",verifyFirebaseToken, async(req, res) => {
       try {
         const userEmail = req.query.email;
 
