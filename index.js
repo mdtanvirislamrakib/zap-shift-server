@@ -35,11 +35,15 @@ async function run() {
     await client.connect();
 
     const parcelCollection = client.db("parcel_DB").collection("parcels");
-    const paymentHistoryCollection = client.db("parcel_DB").collection("payments");
+    const paymentHistoryCollection = client
+      .db("parcel_DB")
+      .collection("payments");
 
-    const trackingCollection = client.db("parcel_DB").collection("tracking_updates");
+    const trackingCollection = client
+      .db("parcel_DB")
+      .collection("tracking_updates");
     const usersCollection = client.db("parcel_DB").collection("users");
-    const ridersCollection = client.db("parcel_DB").collection("riders")
+    const ridersCollection = client.db("parcel_DB").collection("riders");
 
     // custom middleware verify firebase Token
     const verifyFirebaseToken = async (req, res, next) => {
@@ -163,8 +167,8 @@ async function run() {
 
         console.log("Decoded", req.decoded);
 
-        if(req.decoded.email !== userEmail) {
-          return res.status(403).send({message: "Forbidden access"})
+        if (req.decoded.email !== userEmail) {
+          return res.status(403).send({ message: "Forbidden access" });
         }
 
         const query = userEmail ? { email: userEmail } : {};
@@ -180,13 +184,58 @@ async function run() {
       }
     });
 
-
-    app.post("/riders", async(req, res) => {
+    app.post("/riders", async (req, res) => {
       const rider = req.body;
-      const result = await ridersCollection.insertOne(rider)
-      res.send(result)
-    })
+      const result = await ridersCollection.insertOne(rider);
+      res.send(result);
+    });
 
+    app.get("/riders/pending", async (req, res) => {
+      try {
+        const pendingRiders = await ridersCollection
+          .find({ status: "pending" })
+          .sort({ appliedAt: -1 }) // latest first
+          .toArray();
+
+        res.send(pendingRiders);
+      } catch (error) {
+        console.error("Error fetching pending riders", error);
+        res.status(500).send({ message: "Failed to load pending riders" });
+      }
+    });
+
+    // patch update status data
+    app.patch("/riders/:id/status", async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      try {
+        const result = await ridersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+
+        res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to update status", error: error.message });
+      }
+    });
+
+    // find active rider data
+    app.get("/riders/active", async (req, res) => {
+      try {
+        const activeRiders = await ridersCollection
+          .find({ status: "active" })
+          .toArray();
+
+        res.send(activeRiders);
+      } catch (error) {
+        console.error("Error fetching active riders:", error);
+        res.status(500).send({ message: "Failed to load active riders" });
+      }
+    });
 
     app.post("/tracking", async (req, res) => {
       const {
