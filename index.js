@@ -4,27 +4,19 @@ const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 
-
 dotenv.config();
-const stripe = require("stripe")(
-  process.env.SECRET_STRIPE
-);
+const stripe = require("stripe")(process.env.SECRET_STRIPE);
 const app = express();
 app.use(cors());
 app.use(express.json());
 const port = process.env.PORT || 3000;
 
-
 // add firebase service counter
 const serviceAccount = require("./firebase-admin-key.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
 });
-
-
-
-
 
 const uri = `mongodb+srv://${process.env.DB_USER_NAME}:${process.env.DB_USER_PASS}@cluster0.nvanxw5.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -43,56 +35,54 @@ async function run() {
     await client.connect();
 
     const parcelCollection = client.db("parcel_DB").collection("parcels");
-    const paymentHistoryCollection = client
-      .db("parcel_DB")
-      .collection("payments");
+    const paymentHistoryCollection = client.db("parcel_DB").collection("payments");
 
     const trackingCollection = client.db("parcel_DB").collection("tracking_updates");
-    const usersCollection = client.db("parcel_DB").collection("users")
-
+    const usersCollection = client.db("parcel_DB").collection("users");
+    const ridersCollection = client.db("parcel_DB").collection("riders")
 
     // custom middleware verify firebase Token
-    const verifyFirebaseToken = async(req, res, next) => {
+    const verifyFirebaseToken = async (req, res, next) => {
       const authHeader = req?.headers?.authorization;
 
-      if(!authHeader) {
-        res.status(401).send({message: "Unauthorized access!!"})
+      if (!authHeader) {
+        return res.status(401).send({ message: "Unauthorized access!!" });
       }
 
-      const token = authHeader.split(" ")[1]
+      const token = authHeader.split(" ")[1];
 
-      if(!token) {
-        res.status(401).send({message: "Unauthorized access!!"})
+      if (!token) {
+        return res.status(401).send({ message: "Unauthorized access!!" });
       }
 
       // verify the token
-
-
-      next()
-    }
-
-
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+      } catch (error) {
+        res.status(403).send({ message: "Forbidden access!!" });
+      }
+    };
 
     // users data are store here
-    app.post("/users", async(req, res) => {
+    app.post("/users", async (req, res) => {
       const email = req?.body?.email;
-      const userExists = await usersCollection.findOne({email})
+      const userExists = await usersCollection.findOne({ email });
 
-      if(userExists) {
-        return res.status(200).send({message: "User already exists", inserted: false})
+      if (userExists) {
+        return res
+          .status(200)
+          .send({ message: "User already exists", inserted: false });
       }
 
       const user = req.body;
-      const result = await usersCollection.insertOne(user)
-      res.send(result)
-
-
-    })
-
-
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
 
     // POST: Create a new parcel
-    app.post("/parcels", async (req, res) => {
+    app.post("/parcels", verifyFirebaseToken, async (req, res) => {
       try {
         const newParcel = req.body;
 
@@ -167,29 +157,45 @@ async function run() {
       }
     });
 
-
-    app.get("/payments",verifyFirebaseToken, async(req, res) => {
+    app.get("/payments", verifyFirebaseToken, async (req, res) => {
       try {
         const userEmail = req.query.email;
 
-        const query = userEmail ? {email: userEmail} : {};
-        const options = {sort: {paid_at: -1}}
+        console.log("Decoded", req.decoded);
 
-        const payments = await paymentHistoryCollection.find(query, options).toArray()
-        res.send(payments)
+        if(req.decoded.email !== userEmail) {
+          return res.status(403).send({message: "Forbidden access"})
+        }
 
+        const query = userEmail ? { email: userEmail } : {};
+        const options = { sort: { paid_at: -1 } };
 
-
-
+        const payments = await paymentHistoryCollection
+          .find(query, options)
+          .toArray();
+        res.send(payments);
       } catch (error) {
         console.log("Error fatching payment history", error);
-        res.status(500).send({message: 'Failed to get payments'})
+        res.status(500).send({ message: "Failed to get payments" });
       }
+    });
+
+
+    app.post("/riders", async(req, res) => {
+      const rider = req.body;
+      const result = await ridersCollection.insertOne(rider)
+      res.send(result)
     })
 
 
-    app.post("/tracking", async(req, res) => {
-      const {trackind_id, parcel_id, status, message, updated_by=""} = req.body;
+    app.post("/tracking", async (req, res) => {
+      const {
+        trackind_id,
+        parcel_id,
+        status,
+        message,
+        updated_by = "",
+      } = req.body;
 
       const log = {
         trackind_id,
@@ -197,14 +203,11 @@ async function run() {
         status,
         message,
         time: new Date().toISOString(),
-        updated_by
+        updated_by,
       };
-      const result = await trackingCollection.insertOne(log)
-      res.send({success: true, insertedId: result.insertedId})
-    })
-
-
-
+      const result = await trackingCollection.insertOne(log);
+      res.send({ success: true, insertedId: result.insertedId });
+    });
 
     app.post("/payments", async (req, res) => {
       try {
