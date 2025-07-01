@@ -207,13 +207,30 @@ async function run() {
     // patch update status data
     app.patch("/riders/:id/status", async (req, res) => {
       const { id } = req.params;
-      const { status } = req.body;
+      const { status, email } = req.body;
 
       try {
         const result = await ridersCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status } }
         );
+
+        // update user role for updating rider
+        if(status === "active") {
+          const userQuery = {email};
+          const userUpdateDoc = {
+            $set: {
+              role: "rider"
+            }
+          }
+          const roleResult = await usersCollection.updateOne(userQuery, userUpdateDoc)
+          console.log(roleResult);
+          console.log(`Updating user role for email: ${email}`);
+        }
+
+
+
+
 
         res.send(result);
       } catch (error) {
