@@ -61,24 +61,20 @@ async function run() {
       try {
         const decoded = await admin.auth().verifyIdToken(token);
         req.decoded = decoded;
-        console.log(decoded);
         next();
       } catch (error) {
         res.status(403).send({ message: "Forbidden access!!" });
       }
     };
 
-
-    const verifyAdmin = async(req, res, next) => {
-      const {email} = req.decoded;
-      console.log(email);
-      const user = await usersCollection.findOne({email})
-      console.log(user);
-      if(!user || user.role !== "admin") {
-        return res.status(403).send({message: "Forbidden access"})
+    const verifyAdmin = async (req, res, next) => {
+      const { email } = req.decoded;
+      const user = await usersCollection.findOne({ email });
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
       }
       next();
-    }
+    };
 
     // Search & Role Toggle Routes
     app.get("/users/search", async (req, res) => {
@@ -137,9 +133,6 @@ async function run() {
       try {
         const newParcel = req.body;
 
-        // Add createdAt timestampd
-        // newParcel.createdAt = new Date();
-
         const result = await parcelCollection.insertOne(newParcel);
         res.status(201).send(result);
       } catch (error) {
@@ -151,18 +144,55 @@ async function run() {
     // get parcel by user emial
     app.get("/parcels", async (req, res) => {
       try {
-        const userEmail = req.query.email;
+        const { email, payment_status, delivary_status } = req.query;
 
-        const query = userEmail ? { created_by: userEmail } : {};
+        let query = {};
 
-        const options = {
-          sort: { createdAt: -1 },
-        };
-        const parcels = await parcelCollection.find(query, options).toArray();
+        if (email) {
+          query.created_by = email;
+        }
+
+        if (payment_status) {
+          query.payment_status = payment_status;
+        }
+
+        if (delivary_status) {
+          query.delivary_status = delivary_status;
+        }
+
+        const parcels = await parcelCollection
+          .find(query)
+          .sort({ creation_date: -1 })
+          .toArray();
+
+
         res.send(parcels);
       } catch (error) {
-        console.error("Error fatching parcels", error);
-        res.status(500).send({ message: "Failed to get parcel" });
+        console.error("Error fetching parcels", error);
+        res.status(500).send({ message: "Failed to get parcels" });
+      }
+    });
+
+    app.patch("/parcels/:id/assign", async (req, res) => {
+      const id = req.params.id;
+      const { assigned_rider, assigned_at } = req.body;
+
+      try {
+        const result = await parcelCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              assigned_rider,
+              delivary_status: "assigned",
+              assigned_at,
+            },
+          }
+        );
+
+        res.send(result);
+      } catch (err) {
+        console.error("Assign rider error", err);
+        res.status(500).send({ message: "Failed to assign rider" });
       }
     });
 
@@ -232,7 +262,6 @@ async function run() {
       try {
         const userEmail = req.query.email;
 
-
         if (req.decoded.email !== userEmail) {
           return res.status(403).send({ message: "Forbidden access" });
         }
@@ -256,19 +285,23 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/riders/pending", verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      try {
-        const pendingRiders = await ridersCollection
-          .find({ status: "pending" })
-          .sort({ appliedAt: -1 }) // latest first
-          .toArray();
-        console.log(pendingRiders);
-        res.send(pendingRiders);
-      } catch (error) {
-        console.error("Error fetching pending riders", error);
-        res.status(500).send({ message: "Failed to load pending riders" });
+    app.get(
+      "/riders/pending",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const pendingRiders = await ridersCollection
+            .find({ status: "pending" })
+            .sort({ appliedAt: -1 }) // latest first
+            .toArray();
+          res.send(pendingRiders);
+        } catch (error) {
+          console.error("Error fetching pending riders", error);
+          res.status(500).send({ message: "Failed to load pending riders" });
+        }
       }
-    });
+    );
 
     // patch update status data
     app.patch("/riders/:id/status", async (req, res) => {
@@ -304,18 +337,23 @@ async function run() {
     });
 
     // find active rider data
-    app.get("/riders/active",verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      try {
-        const activeRiders = await ridersCollection
-          .find({ status: "active" })
-          .toArray();
+    app.get(
+      "/riders/active",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const activeRiders = await ridersCollection
+            .find({ status: "active" })
+            .toArray();
 
-        res.send(activeRiders);
-      } catch (error) {
-        console.error("Error fetching active riders:", error);
-        res.status(500).send({ message: "Failed to load active riders" });
+          res.send(activeRiders);
+        } catch (error) {
+          console.error("Error fetching active riders:", error);
+          res.status(500).send({ message: "Failed to load active riders" });
+        }
       }
-    });
+    );
 
     app.post("/tracking", async (req, res) => {
       const {
