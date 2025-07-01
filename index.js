@@ -48,13 +48,11 @@ async function run() {
     // custom middleware verify firebase Token
     const verifyFirebaseToken = async (req, res, next) => {
       const authHeader = req?.headers?.authorization;
-
       if (!authHeader) {
         return res.status(401).send({ message: "Unauthorized access!!" });
       }
 
       const token = authHeader.split(" ")[1];
-
       if (!token) {
         return res.status(401).send({ message: "Unauthorized access!!" });
       }
@@ -63,11 +61,24 @@ async function run() {
       try {
         const decoded = await admin.auth().verifyIdToken(token);
         req.decoded = decoded;
+        console.log(decoded);
         next();
       } catch (error) {
         res.status(403).send({ message: "Forbidden access!!" });
       }
     };
+
+
+    const verifyAdmin = async(req, res, next) => {
+      const {email} = req.decoded;
+      console.log(email);
+      const user = await usersCollection.findOne({email})
+      console.log(user);
+      if(!user || user.role !== "admin") {
+        return res.status(403).send({message: "Forbidden access"})
+      }
+      next();
+    }
 
     // Search & Role Toggle Routes
     app.get("/users/search", async (req, res) => {
@@ -104,6 +115,23 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/users/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const user = await usersCollection.findOne({ email });
+
+        if (!user) {
+          return res.status(404).send({ message: "User not found" });
+        }
+
+        res.send({ role: user.role || "user" }); // default role is "user" if undefined
+      } catch (error) {
+        console.error("Error fetching user role:", error);
+        res.status(500).send({ message: "Internal server error" });
+      }
+    });
+
     // POST: Create a new parcel
     app.post("/parcels", verifyFirebaseToken, async (req, res) => {
       try {
@@ -122,7 +150,6 @@ async function run() {
 
     // get parcel by user emial
     app.get("/parcels", async (req, res) => {
-      console.log(req?.headers);
       try {
         const userEmail = req.query.email;
 
@@ -148,8 +175,10 @@ async function run() {
           return res.status(400).send({ message: "Invalid role" });
         }
 
-        const result = await usersCollection
-          .updateOne({ _id: new ObjectId(id) }, { $set: { role } });
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role } }
+        );
 
         res.send(result);
       } catch (err) {
@@ -203,7 +232,6 @@ async function run() {
       try {
         const userEmail = req.query.email;
 
-        console.log("Decoded", req.decoded);
 
         if (req.decoded.email !== userEmail) {
           return res.status(403).send({ message: "Forbidden access" });
@@ -228,13 +256,13 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/riders/pending", async (req, res) => {
+    app.get("/riders/pending", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       try {
         const pendingRiders = await ridersCollection
           .find({ status: "pending" })
           .sort({ appliedAt: -1 }) // latest first
           .toArray();
-
+        console.log(pendingRiders);
         res.send(pendingRiders);
       } catch (error) {
         console.error("Error fetching pending riders", error);
@@ -265,8 +293,6 @@ async function run() {
             userQuery,
             userUpdateDoc
           );
-          console.log(roleResult);
-          console.log(`Updating user role for email: ${email}`);
         }
 
         res.send(result);
@@ -278,7 +304,7 @@ async function run() {
     });
 
     // find active rider data
-    app.get("/riders/active", async (req, res) => {
+    app.get("/riders/active",verifyFirebaseToken, verifyAdmin, async (req, res) => {
       try {
         const activeRiders = await ridersCollection
           .find({ status: "active" })
