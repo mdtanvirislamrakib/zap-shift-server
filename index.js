@@ -69,6 +69,25 @@ async function run() {
       }
     };
 
+    // Search & Role Toggle Routes
+    app.get("/users/search", async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email)
+          return res.status(400).send({ message: "Email query is required" });
+
+        const regex = new RegExp(email, "i"); // case-insensitive search
+        const users = await usersCollection
+          .find({ email: { $regex: regex } })
+          .toArray();
+
+        res.send(users);
+      } catch (err) {
+        console.error("Search error", err);
+        res.status(500).send({ message: "Failed to search users" });
+      }
+    });
+
     // users data are store here
     app.post("/users", async (req, res) => {
       const email = req?.body?.email;
@@ -117,6 +136,25 @@ async function run() {
       } catch (error) {
         console.error("Error fatching parcels", error);
         res.status(500).send({ message: "Failed to get parcel" });
+      }
+    });
+
+    app.patch("/users/:id/role", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { role } = req.body;
+
+        if (!["admin", "user"].includes(role)) {
+          return res.status(400).send({ message: "Invalid role" });
+        }
+
+        const result = await usersCollection
+          .updateOne({ _id: new ObjectId(id) }, { $set: { role } });
+
+        res.send(result);
+      } catch (err) {
+        console.error("Role update error", err);
+        res.status(500).send({ message: "Failed to update user role" });
       }
     });
 
@@ -216,24 +254,20 @@ async function run() {
         );
 
         // update user role for updating rider
-        if(status === "active") {
-          const userQuery = {email};
+        if (status === "active") {
+          const userQuery = { email };
           const userUpdateDoc = {
             $set: {
-              role: "rider"
-            }
-          }
-          const roleResult = await usersCollection.updateOne(userQuery, userUpdateDoc)
+              role: "rider",
+            },
+          };
+          const roleResult = await usersCollection.updateOne(
+            userQuery,
+            userUpdateDoc
+          );
           console.log(roleResult);
           console.log(`Updating user role for email: ${email}`);
         }
-
-
-
-
-        
-
-
 
         res.send(result);
       } catch (error) {
